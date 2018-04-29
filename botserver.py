@@ -9,8 +9,8 @@ import logging
 import chatbot
 import utils
 
-LOGFILE = './log/botserver.log'
 conf = utils.get_config()
+LOGFILE = conf["Server"]["log_path"]
 toBool = lambda str: True if str == "True" else False 
 
 DEBUG_SERVER = toBool(conf["DEBUG"]["server"])
@@ -29,17 +29,15 @@ def session(connection):
     
     # Get Config
     conf = utils.get_config()
-    DBHOST = conf["MySQL"]["server"] 
-    DBUSER = conf["MySQL"]["dbuser"]
-    DBNAME = conf["MySQL"]["dbname"]
+    DBFILE = conf["Sqlite"]["filepath"]
     
     logging.info("Starting Bot session-thread...") 
 
     # initialize the connection to the database
     logging.info("   session-thread connecting to database...")
-    DBconnection = utils.db_connection(DBHOST, DBUSER, DBNAME)
+    DBconnection = utils.db_connection(DBFILE)
     DBcursor =  DBconnection.cursor()
-    DBconnectionID = utils.db_connectionID(DBcursor)
+    #DBconnectionID = utils.db_connectionID(DBcursor)
     logging.info("   ...connected")
     
     botSentence = 'Hello!'

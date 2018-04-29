@@ -74,19 +74,19 @@ def item_id(entityName, text, cursor):
     #check whether 16-char hash of this text exists already
     hashid = hashtext(text)
     
-    SQL = 'SELECT hashid FROM ' + tableName + ' WHERE hashID = %s'
+    SQL = 'SELECT hashid FROM ' + tableName + ' WHERE hashID = ?'
     if (DEBUG_ITEMID == True): print("DEBUG ITEMID: " + SQL)
-    cursor.execute(SQL, (hashid))
+    cursor.execute(SQL, (hashid,))
     row = cursor.fetchone()
     
     if row:
-        if (DEBUG_ITEMID == True): print("DEBUG ITEMID: item found, just return hashid:",row["hashid"], " for ", text )
+        if (DEBUG_ITEMID == True): print("DEBUG ITEMID: item found, just return hashid:",row[0], " for ", text )
         alreadyExists = True
-        return row["hashid"], alreadyExists
+        return row[0], alreadyExists
         
     else:
         if (DEBUG_ITEMID == True): print("DEBUG ITEMID: no item found, insert new hashid into",tableName, " hashid:", hashid, " text:",text )
-        SQL = 'INSERT INTO ' + tableName + ' (hashid, ' + columnName + ') VALUES (%s, %s)'
+        SQL = 'INSERT INTO ' + tableName + ' (hashid, ' + columnName + ') VALUES (?, ?)'
         alreadyExists = False
         cursor.execute(SQL, (hashid, text))
         return hashid, alreadyExists 
@@ -136,13 +136,13 @@ def set_association(words, sentence_id, cursor):
             
             if (DEBUG_ASSOC == True): print("DEBUG_ASSOC: got an association for", word, " value: ", association, " with sentence_id:", sentence_id)
                                             
-            SQL = 'UPDATE associations SET weight = %s WHERE word_id = %s AND sentence_id = %s'
+            SQL = 'UPDATE associations SET weight = ? WHERE word_id = ? AND sentence_id = ?'
             if (DEBUG_ASSOC == True): print("DEBUG_ASSOC:", SQL, weight, word_id, sentence_id) 
             cursor.execute(SQL, (association+weight, word_id, sentence_id))
            
         else:
             
-            SQL = 'INSERT INTO associations (word_id, sentence_id, weight) VALUES (%s, %s, %s)'
+            SQL = 'INSERT INTO associations (word_id, sentence_id, weight) VALUES (?, ?, ?)'
             if (DEBUG_ASSOC == True): print("DEBUG_ASSOC:", SQL,word_id, sentence_id, weight)
             cursor.execute(SQL, (word_id, sentence_id, weight))
 
@@ -154,13 +154,13 @@ def get_association(word_id,sentence_id, cursor):
     
     associations are referred to in the get_matches() fn, to match input sentences to response sentences
     """
-    SQL = 'SELECT weight FROM associations WHERE word_id =%s AND sentence_id =%s'
+    SQL = 'SELECT weight FROM associations WHERE word_id = ? AND sentence_id = ?'
     if (DEBUG_ASSOC == True): print("DEBUG_ASSOC:", SQL,word_id, sentence_id)
     cursor.execute(SQL, (word_id,sentence_id))
     row = cursor.fetchone()
     
     if row:
-        weight = row["weight"]
+        weight = row[0]
     else:
         weight = 0
     return weight
@@ -177,7 +177,7 @@ def get_matches(words, cursor):
     
     # Removed temp tables due to  GTID configuration issue in mySQL
     #cursor.execute('CREATE TEMPORARY TABLE results(sentence_id TEXT, sentence TEXT, weight REAL)')
-    cursor.execute('DELETE FROM results WHERE connection_id = connection_id()')
+    cursor.execute('DELETE FROM results')
     
     # calc "words_length" for weighting calc
     words_length = sum([n * len(word) for word, n in words])  
@@ -188,18 +188,17 @@ def get_matches(words, cursor):
         #weight = sqrt(n / float(words_length))  # repeated words get higher weight.  Longer sentences reduces their weight
         weight = (n / float(words_length))
         SQL = 'INSERT INTO results \
-                 SELECT connection_id(), associations.sentence_id, sentences.sentence, %s * associations.weight/(1+sentences.used) \
+                 SELECT associations.sentence_id, sentences.sentence, ? * associations.weight/(1+sentences.used) \
                  FROM words \
                  INNER JOIN associations ON associations.word_id=words.hashid \
                  INNER JOIN sentences ON sentences.hashid=associations.sentence_id \
-                 WHERE words.word = %s'
+                 WHERE words.word = ?'
         if (DEBUG_MATCH == True): print("DEBUG_MATCH: ", SQL, " weight = ",weight , "word = ", word)
         cursor.execute(SQL, (weight, word)) 
     
     if (DEBUG_MATCH == True): print("DEBUG_MATCH: ", SQL)
     cursor.execute('SELECT sentence_id, sentence, SUM(weight) AS sum_weight \
                     FROM results \
-                    WHERE connection_id = connection_id() \
                     GROUP BY sentence_id, sentence  \
                     ORDER BY sum_weight DESC')
     
@@ -207,13 +206,13 @@ def get_matches(words, cursor):
     for i in range(0,listSize):
         row = cursor.fetchone()
         if row:
-            results.append([row["sentence_id"], row["sentence"], row["sum_weight"]])
-            if (DEBUG_MATCH == True): print("**",[row["sentence_id"], row["sentence"], row["sum_weight"]],"\n")
+            results.append([row[0], row[1], row[2]])
+            if (DEBUG_MATCH == True): print("**",[row[0], row[1], row[2]],"\n")
             
         else:
             break
     #cursor.execute('DROP TEMPORARY TABLE results')
-    cursor.execute('DELETE FROM results WHERE connection_id = connection_id()')
+    cursor.execute('DELETE FROM results')
         
     return results
 
@@ -223,8 +222,8 @@ def feedback_stats(sentence_id, cursor, previous_sentence_id = None, sentiment =
     Simple BOT Version 1 just updates the sentence used counter
     """
        
-    SQL = 'UPDATE sentences SET used=used+1 WHERE hashid=%s'
-    cursor.execute(SQL, (sentence_id))
+    SQL = 'UPDATE sentences SET used=used+1 WHERE hashid=?'
+    cursor.execute(SQL, (sentence_id,))
     
 def train_me(inputSentence, responseSentence, cursor):
     inputWords = get_words(inputSentence) #list of tuples of words + occurrence count
@@ -327,8 +326,8 @@ def store_statement(sentence, cursor):
     #Write the sentence to SENTENCES with hashid = id, used = 1 OR update used if already there
     sentence_id, exists = item_id('sentence', sentence, cursor)
     
-    SQL = 'UPDATE sentences SET used=used+1 WHERE hashid=%s'
-    cursor.execute(SQL, (sentence_id))
+    SQL = 'UPDATE sentences SET used=used+1 WHERE hashid=?'
+    cursor.execute(SQL, (sentence_id,))
     
     #If the sentence already exists, assume the statement grammar is already there
     if not exists:
@@ -338,24 +337,24 @@ def store_statement(sentence, cursor):
         #topic
         for word in topic:
             word_id, exists = item_id('word', word, cursor)
-            SQL = "INSERT INTO statements (sentence_id, word_id, class) VALUES (%s, %s, %s) "
+            SQL = "INSERT INTO statements (sentence_id, word_id, class) VALUES (?, ?, ?) "
             cursor.execute(SQL, (sentence_id, word_id, 'topic'))
         #subj
         for word in subj:
             word_id, exists = item_id('word', word, cursor)
-            SQL = "INSERT INTO statements (sentence_id, word_id, class) VALUES (%s, %s, %s) "
+            SQL = "INSERT INTO statements (sentence_id, word_id, class) VALUES (?, ?, ?) "
             cursor.execute(SQL, (sentence_id, word_id, 'subj'))
         
         #obj
         for word in obj:
             word_id, exists = item_id('word', word, cursor)
-            SQL = "INSERT INTO statements (sentence_id, word_id, class) VALUES (%s, %s, %s) "
+            SQL = "INSERT INTO statements (sentence_id, word_id, class) VALUES (?, ?, ?) "
             cursor.execute(SQL, (sentence_id, word_id, 'obj'))
         
         #lastNouns
         for word in lastNouns:
             word_id, exists = item_id('word', word, cursor)
-            SQL = "INSERT INTO statements (sentence_id, word_id, class) VALUES (%s, %s, %s) "
+            SQL = "INSERT INTO statements (sentence_id, word_id, class) VALUES (?, ?, ?) "
             cursor.execute(SQL, (sentence_id, word_id, 'nouns'))
 
 def get_answer(sentence, cursor):
@@ -372,8 +371,8 @@ def get_answer(sentence, cursor):
     subj_obj = subj + obj
    
     full_grammar = topic + subj + obj + lastNounA + lastNounB 
-    full_grammar_in = ' ,'.join(list(map(lambda x: '%s', full_grammar))) # SQL in-list fmt
-    subj_in = ' ,'.join(list(map(lambda x: '%s', subj_topic))) # SQL in-list fmt
+    full_grammar_in = ' ,'.join(list(map(lambda x: '?', full_grammar))) # SQL in-list fmt
+    subj_in = ' ,'.join(list(map(lambda x: '?', subj_topic))) # SQL in-list fmt
     
     if (DEBUG_ANSWER == True): print("DEBUG_ANSWER: grammar: SUBJ", subj, " TOPIC", topic, " OBJ:", obj, " L-NOUNS:", lastNounA + lastNounB)
     if (DEBUG_ANSWER == True): print("DEBUG_ANSWER: subj_in", subj_in, "\nsubj_topic", subj_topic, "\nfull_grammar_in", full_grammar_in, "\nfull_grammer", full_grammar)
@@ -399,14 +398,14 @@ def get_answer(sentence, cursor):
     SQL1 = SQL1 % full_grammar_in
     SQL2 = SQL2 % subj_in
     SQL = SQL1 + SQL2
-    #if (DEBUG_ANSWER == True): print("SQL: ", SQL, "\n  args full_grammer_in: ", full_grammar_in, "\n  args subj_in", subj_in)
+    if (DEBUG_ANSWER == True): print("SQL: ", SQL, "\n  args full_grammer_in: ", full_grammar, "\n  args subj_in", subj_topic)
     
     cursor.execute(SQL, full_grammar + subj_topic)
     for i in range(0,listSize):
         row = cursor.fetchone()
         if row:
-            results.append([row["sentence_id"], row["score"], row["sentence"]])
-            if (DEBUG_ANSWER == True): print("DEBUG_ANSWER: ", row["sentence_id"], row["score"], row["sentence"])
+            results.append([row[1], row[0], row[2]])
+            if (DEBUG_ANSWER == True): print("DEBUG_ANSWER: ", row[1], row[0], row[2])
         else:
             break
     
@@ -490,16 +489,14 @@ if __name__ == "__main__":
     conf = utils.get_config()
     regexpYes = re.compile(r'yes')
     
-    DBHOST = conf["MySQL"]["server"] 
-    DBUSER = conf["MySQL"]["dbuser"]
-    DBNAME = conf["MySQL"]["dbname"]
+    DBFILE = conf["Sqlite"]["filepath"]
     
     print("Starting Bot...") 
     # initialize the connection to the database
     print("Connecting to database...")
-    connection = utils.db_connection(DBHOST, DBUSER, DBNAME)
+    connection = utils.db_connection(DBFILE)
     cursor =  connection.cursor()
-    connectionID = utils.db_connectionID(cursor)
+    #connectionID = utils.db_connectionID(cursor)
     print("...connected")
     
     trainMe = False

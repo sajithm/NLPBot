@@ -2,10 +2,7 @@ import sys
 import configparser
 import os
 import datetime
-
-import pwdutil   #local util for database password
-import pymysql   # http://pymysql.readthedocs.io/en/latest/
-                 # https://github.com/PyMySQL/PyMySQL
+import sqlite3
 
 class ConfigFileAccessError(Exception):
     pass
@@ -22,16 +19,13 @@ def get_config():
       
     The config file is in standard Python .ini fmt, EG:
         
-        [MySQL]
-        server: 192.168.56.100
-        dbuser: simplebot
-        dbname: simplebot
-        dbcharset: utf8mb4
+        [Sqlite]
+        filepath: chatbot.db
     
     The above example can then be ref'd:
     
         config = utils.get_config()
-        username = config["MySQL"]["dbuser"]      
+        filepath = config["Sqlite"]["filepath"]      
       
     """
     
@@ -95,27 +89,9 @@ def flatten(container):
         else:
             yield i  
                       
-def db_connection(host, user, dbname, charset = "utf8mb4"):
-    """
-    Connect to a MySQL Database Server
-    """
-    key = pwdutil.get_key()
-    encoded = pwdutil.get_pwd()
-    password = pwdutil.decode(key,encoded)
-    
-    connection = pymysql.connect(host = host
-                                , user = user
-                                , password = password
-                                , db = dbname
-                                , charset = charset
-                                , cursorclass=pymysql.cursors.DictCursor)
-    
+def db_connection(filepath):
+    connection = sqlite3.connect(filepath)
     return connection
-
-def db_connectionID(cursor):
-    cursor.execute('SELECT connection_id()', (None))
-    value = cursor.fetchone()["connection_id()"]
-    return(value)
 
 def timestamp_string():
     timestamp_string = str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
